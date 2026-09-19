@@ -1,53 +1,46 @@
 import os
-import time
-from flask import Flask, request, jsonify
+from flask import Flask, request
 
 app = Flask(__name__)
 
-# Configurações do Soberano Pets
-ADMIN_1 = "5585991634564"  # Principal
-ADMIN_2 = "5585991999241"  # Segunda aprovadora
-PIX_KEY = "eae2396a-6954-4fbf-a6b6-d328455e4df8"
+# Lê a variável VERIFY_TOKEN configurada no Render (padrão: "soberano 123")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "soberano 123")
 
-# Dicionário em memória para armazenar os pedidos ativos e a trava de prioridade
-pedidos = {}
 
+# Rota principal para verificar se o serviço está ativo no Render
 @app.route("/", methods=["GET"])
 def home():
-    return "Soberano Pets Bot rodando com sucesso!", 200
+    return "Bot Soberano Pet está ativo!", 200
 
-@app.route("/webhook", methods=["POST"])
+
+# Rota do Webhook da Meta / WhatsApp
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    data = request.get_json()
-    
-    if data and "message" in data:
-        msg = data["message"].get("text", "").strip()
-        sender = data["message"].get("from", "")
-        
-        # Lógica de aprovação "primeiro a clicar/responder"
-        if msg.startswith("OK_PEDIDO_"):
-            pedido_id = msg.replace("OK_PEDIDO_", "")
-            
-            if pedido_id in pedidos:
-                if pedidos[pedido_id]["status"] == "PENDENTE":
-                    pedidos[pedido_id]["status"] = "APROVADO"
-                    pedidos[pedido_id]["aprovado_por"] = sender
-                    
-                    return jsonify({
-                        "status": "success",
-                        "message": f"Pedido {pedido_id} aprovado por {sender}! Chave Pix enviada ao cliente."
-                    })
-                else:
-                    aprovador = pedidos[pedido_id].get("aprovado_por", "outro administrador")
-                    return jsonify({
-                        "status": "already_approved",
-                        "message": f"Pedido {pedido_id} já foi aprovado anteriormente por {aprovador}!"
-                    })
-            else:
-                return jsonify({"status": "not_found", "message": "Pedido não encontrado."})
+    # 1. VERIFICAÇÃO DO WEBHOOK (Requisição GET enviada pela Meta)
+    if request.method == "GET":
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
 
-    return jsonify({"status": "ignored"}), 200
+        # Compara o token enviado com a variável VERIFY_TOKEN
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            print("Webhook do Soberano verificado com sucesso!")
+            # Retorna exatamente o valor do challenge com HTTP 200
+            return challenge, 200
+        else:
+            print("Falha na verificação: token incorreto.")
+            return "Token de verificação inválido", 403
+
+    # 2. RECEBIMENTO DE MENSAGENS E EVENTOS (Requisição POST)
+    elif request.method == "POST":
+        data = request.json
+        print("Mensagem recebida no Soberano Bot:", data)
+
+        # A Meta exige resposta 200 OK imediata
+        return "EVENT_RECEIVED", 200
+
 
 if __name__ == "__main__":
+    # O Render define a porta dinamicamente via variável de ambiente PORT
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
